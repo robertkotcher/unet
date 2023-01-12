@@ -41,7 +41,7 @@ class SaltDataset(Dataset):
         
             mask_pil = Image.open(mask_path)
             mask_tensor = convert_tensor(mask_pil)
-            mask_tensor[mask_tensor==65535] = 255
+            mask_tensor[mask_tensor==65535] = 1
             mask = mask_tensor.to(torch.uint8)   
             self.masks.append(mask)
 
@@ -56,7 +56,14 @@ class SaltDataset(Dataset):
         return len(self.paths)
 
     def __getitem__(self, idx):
-        return self.images[idx], self.masks[idx]
+        img = self.images[idx]
+        mask = self.masks[idx]
+
+        if self.transform != None:
+            img = self.transform(img)
+            mask = self.transform(mask)
+
+        return img, mask
 
 ################################################################################
 # NOTE this part is just for VIEWING the images and masks.. maybe these images #

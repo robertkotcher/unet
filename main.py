@@ -3,11 +3,17 @@ import torch
 import torch.nn as nn
 import os
 from tqdm import tqdm
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 from torch import optim
+from torchvision import transforms
+from torchvision.utils import save_image
+from dice_score import dice_loss
 
 from unet import UNet
 from dataset import SaltDataset
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ###############################################################################
 #                                  TRAINING                                   #
@@ -27,8 +33,6 @@ from dataset import SaltDataset
 #  [ ] what is gradient clipping?
 
 logging.basicConfig(level=logging.INFO, format='[TRAIN] %(levelname)s: %(message)s')
-
-device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def train_model(
     model,
@@ -70,6 +74,7 @@ def train_model(
     criterion = nn.CrossEntropyLoss()
 
     # 3. Perform training
+    _counter=0
     for epoch in range(1, num_epochs + 1):
         model.train()
         epoch_loss = 0
@@ -80,16 +85,11 @@ def train_model(
 
                 # channels_last to make better use of locality? Just a guess..
                 images = images.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
-                masks = masks.to(device=device, dtype=torch.long)
+                masks = masks.to(device=device, dtype=torch.float32)
+                model = model.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
 
-                with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=False):
-                    masks_pred = model(images)
-                    loss = criterion(masks_pred, masks)
-                    # loss += dice_loss(
-                    #     F.softmax(masks_pred, dim=1).float(),
-                    #     F.one_hot(true_masks, model.n_classes).permute(0, 3, 1, 2).float(),
-                    #     multiclass=True
-                    # )
+                masks_pred = model(images)
+                loss = criterion(masks.squeeze(), masks_pred.squeeze())
                 
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
@@ -98,26 +98,31 @@ def train_model(
                 grad_scaler.update()
 
                 pbar.update(images.shape[0])
-                global_step += 1
                 epoch_loss += loss.item()
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
 
                 # do validation after this....
                 # but I'll do this when I see that training on training set is working
 
+                if _counter % 1000 == 0:
+                    save_image(images[0], f"{_counter}-in.png")
+                    save_image(masks[0] * 255, f"{_counter}-label.png")
+                    save_image(masks_pred[0] * 255, f"{_counter}-pred.png")
+                _counter = _counter + 1
+
+
 
 if __name__ == "__main__":
     # depth tells us how many times we want to max pool - if dimensionality doesn't work out,
     # then UNet will complain on forward pass
-    model = UNet(in_channels=3, out_channels=1, side=100, depth=2)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = UNet(in_channels=3, out_channels=1, side=96)
+    model = model.to(device=device, memory_format=torch.channels_last)
     logging.info(f'Using device {device}')
     sds=SaltDataset(
-        "/Users/robertkotcher/Synthesis/unet/tgs-salt-identification-challenge/train/images",
-        "/Users/robertkotcher/Synthesis/unet/tgs-salt-identification-challenge/train/masks"
+        "/home/ubuntu/salt-dataset/train/images",
+        "/home/ubuntu/salt-dataset/train/masks",
+        transform=transforms.Resize(96)
     )
-
-    model.to(device)
 
     train_model(model, sds, device)
 
