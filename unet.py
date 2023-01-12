@@ -10,8 +10,8 @@ class DownBlock(nn.Module):
         self.b0 = nn.BatchNorm2d(out_channels)
         self.r0 = nn.ReLU()
         self.c1 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding='same')
-        self.r1 = nn.ReLU()
         self.b1 = nn.BatchNorm2d(out_channels)
+        self.r1 = nn.ReLU()
 
         self.down_sample_after = down_sample_after
         self.mp = nn.MaxPool2d(2)
@@ -68,7 +68,10 @@ class UNet(nn.Module):
         self.up3 = UpBlock(128, 64)
 
         self.last_double = DownBlock(64, 64, False)
+        
         self.last_single = nn.Conv2d(64, out_channels, kernel_size=1, padding='same')
+
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # validate
@@ -88,5 +91,6 @@ class UNet(nn.Module):
         x = self.up3(x, x_cat_3)
 
         x = self.last_double(x)
-        return self.last_single(x)
+        x = self.last_single(x)
+        return self.sigmoid(x)
         

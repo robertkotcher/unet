@@ -39,9 +39,9 @@ def train_model(
     dataset=None,
     device='cuda',
     num_epochs=10,
-    val_percent=0.1,
+    val_percent=0.01,
     batch_size=1,
-    lr=1e-5,
+    lr=1e-8,
 
     # momentum and weight_decay are values used with RMS_prop optimizer
     momentum=0.99,
@@ -71,7 +71,8 @@ def train_model(
     #       todo: set up optim.lr_scheduler to reduce lr on plateau (see https://github.com/milesial/Pytorch-UNet/blob/master/train.py)
     optimizer = optim.RMSprop(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=momentum, foreach=True)
     grad_scaler = torch.cuda.amp.GradScaler(enabled=False)
-    criterion = nn.CrossEntropyLoss()
+    
+    lossfn = nn.BCELoss()
 
     # 3. Perform training
     _counter=0
@@ -85,26 +86,32 @@ def train_model(
 
                 # channels_last to make better use of locality? Just a guess..
                 images = images.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
-                masks = masks.to(device=device, dtype=torch.float32)
+                masks = masks.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
                 model = model.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
 
                 masks_pred = model(images)
-                loss = criterion(masks.squeeze(), masks_pred.squeeze())
-                
+                loss = lossfn(masks_pred.squeeze(), masks.squeeze())
+
+                if _counter % 1000 == 0:
+                    print(masks)
+                    print(masks_pred)
+                    print("===")
+
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), False)
                 grad_scaler.step(optimizer)
                 grad_scaler.update()
 
                 pbar.update(images.shape[0])
                 epoch_loss += loss.item()
-                pbar.set_postfix(**{'loss (batch)': loss.item()})
+                pbar.set_postfix(**{'loss': f"{loss.item():.3f}"})
 
                 # do validation after this....
                 # but I'll do this when I see that training on training set is working
 
+                # visualize performance on the training set
                 if _counter % 1000 == 0:
+                    print("saving example...")
                     save_image(images[0], f"{_counter}-in.png")
                     save_image(masks[0] * 255, f"{_counter}-label.png")
                     save_image(masks_pred[0] * 255, f"{_counter}-pred.png")
