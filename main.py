@@ -1,9 +1,13 @@
 import logging
 import torch
+import torch.nn as nn
 import os
 from tqdm import tqdm
 from torch.utils.data import DataLoader, random_split
 from torch import optim
+
+from unet import UNet
+from dataset import SaltDataset
 
 ###############################################################################
 #                                  TRAINING                                   #
@@ -28,7 +32,7 @@ from torch import optim
 #  [ ] how does a "learning rate scheduler" (optim.lr_scheduler) work?
 #  [ ] what is --amp? (mixed-precision training?) (not currently using)
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format='[TRAIN] %(levelname)s: %(message)s')
 
 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logging.info(f"Using device {device}")
@@ -75,8 +79,10 @@ def train_model(
         model.train()
         epoch_loss = 0
         with tqdm(total=n_train, desc=f'Epoch {epoch}/{num_epochs}', unit='img') as pbar:
-            for batch in train_loader:
-                continue
+            for (images, masks) in train_loader:
+                print(images)
+                print(masks)
+                print("====")
 
 
 if __name__ == "__main__":
@@ -86,8 +92,8 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Using device {device}')
     sds=SaltDataset(
-        "/content/drive/MyDrive/deep_learning/salt_identification_challenge/train/images",
-        "/content/drive/MyDrive/deep_learning/salt_identification_challenge/train/masks"
+        "/home/ubuntu/salt-dataset/train/images",
+        "/home/ubuntu/salt-dataset/train/masks"
     )
 
     model.to(device)

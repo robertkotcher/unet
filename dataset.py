@@ -3,8 +3,10 @@
 ################################################################################
 
 import os
+import logging
 import random
 import pandas as pd
+import torch
 import numpy as np
 from torch.utils.data import Dataset
 from torchvision.io import read_image
@@ -16,27 +18,42 @@ from PIL import Image
 from torchvision import transforms
 convert_tensor = transforms.ToTensor()
 
+logging.basicConfig(level=logging.INFO, format='[DATASET] %(levelname)s: %(message)s')
+
 class SaltDataset(Dataset):
     def __init__(self, img_dir, mask_dir, transform=None):
+        
         self.img_dir = img_dir
         self.mask_dir = mask_dir
         self.transform = transform
         self.paths = os.listdir(img_dir)
 
+        logging.info(f"Loading images from {img_dir} into memory")
+        self.images = [ \
+            convert_tensor( \
+                Image.open(os.path.join(self.img_dir, fn))) for fn in self.paths]
+        
+        logging.info(f"Loading masks from {mask_dir} into memory")
+        self.masks = []
+        for fn in self.paths:
+            mask_path = os.path.join(self.mask_dir, fn)
+        
+            mask_pil = Image.open(mask_path)
+            mask_tensor = convert_tensor(mask_pil)
+            mask_tensor[mask_tensor==65535] = 255
+            mask = mask_tensor.to(torch.uint8)   
+            self.masks.append(mask)
+
+        torch.save(self.images[0], 'image0.np')
+        torch.save(self.masks[0], 'mask0.np')
+
+        logging.info(f"Done loading images and masks.")
+
     def __len__(self):
         return len(self.paths)
 
     def __getitem__(self, idx):
-        fn = self.paths[idx]
-        img_path = os.path.join(self.img_dir, fn)
-        mask_path = os.path.join(self.mask_dir, fn)
-
-        image = read_image(img_path)
-        mask_pil = Image.open(mask_path)
-        mask_tensor = convert_tensor(mask_pil)
-        mask_tensor[mask_tensor==65535] = 255
-        mask = mask_tensor.to(torch.uint8)   
-        return image, mask
+        return self.images[idx], self.masks[idx]
 
 ################################################################################
 # NOTE this part is just for VIEWING the images and masks.. maybe these images #
