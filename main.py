@@ -22,20 +22,13 @@ from dataset import SaltDataset
 #
 # To study further:
 #  [ ] what is RMSprop optimizer? how does it different from Adam, etc?
-#  [x] what is cross entropy loss?
-#           ~ a different way to measure loss that gives preference to really bad predictions
-#             (SSR is linear and only gives slight preference to really bad predictions)
-#           ~ Use -log(x), where "x" is the value after applying softmax
-#             compare with "cross entropy", which sums -p(x)log(x), but since p(x) is 0 for
-#             all other terms, we only care about the entropy of current label
-#           ~ see Josh Starmer's cross entropy video
 #  [ ] how does a "learning rate scheduler" (optim.lr_scheduler) work?
 #  [ ] what is --amp? (mixed-precision training?) (not currently using)
+#  [ ] what is gradient clipping?
 
 logging.basicConfig(level=logging.INFO, format='[TRAIN] %(levelname)s: %(message)s')
 
 device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-logging.info(f"Using device {device}")
 
 def train_model(
     model,
@@ -67,12 +60,14 @@ def train_model(
         Validation size: {n_val}
         Momentum:        {momentum}
         Device:          {device.type}
+        Gradient clipping False
     ''')
 
     # 2. set up optimizer and loss function
     #       todo: set up optim.lr_scheduler to reduce lr on plateau (see https://github.com/milesial/Pytorch-UNet/blob/master/train.py)
     optimizer = optim.RMSprop(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=momentum, foreach=True)
-    loss = nn.CrossEntropyLoss()
+    grad_scaler = torch.cuda.amp.GradScaler(enabled=False)
+    criterion = nn.CrossEntropyLoss()
 
     # 3. Perform training
     for epoch in range(1, num_epochs + 1):
@@ -80,9 +75,35 @@ def train_model(
         epoch_loss = 0
         with tqdm(total=n_train, desc=f'Epoch {epoch}/{num_epochs}', unit='img') as pbar:
             for (images, masks) in train_loader:
-                print(images)
-                print(masks)
-                print("====")
+                assert images.shape[1] == model.in_channels, \
+                    f"Unet was defined to take {images.shape[1]} input channels, but training images have {images.shape[1]}"
+
+                # channels_last to make better use of locality? Just a guess..
+                images = images.to(device=device, dtype=torch.float32, memory_format=torch.channels_last)
+                masks = masks.to(device=device, dtype=torch.long)
+
+                with torch.autocast(device.type if device.type != 'mps' else 'cpu', enabled=False):
+                    masks_pred = model(images)
+                    loss = criterion(masks_pred, masks)
+                    # loss += dice_loss(
+                    #     F.softmax(masks_pred, dim=1).float(),
+                    #     F.one_hot(true_masks, model.n_classes).permute(0, 3, 1, 2).float(),
+                    #     multiclass=True
+                    # )
+                
+                optimizer.zero_grad(set_to_none=True)
+                grad_scaler.scale(loss).backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), False)
+                grad_scaler.step(optimizer)
+                grad_scaler.update()
+
+                pbar.update(images.shape[0])
+                global_step += 1
+                epoch_loss += loss.item()
+                pbar.set_postfix(**{'loss (batch)': loss.item()})
+
+                # do validation after this....
+                # but I'll do this when I see that training on training set is working
 
 
 if __name__ == "__main__":
@@ -92,8 +113,8 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f'Using device {device}')
     sds=SaltDataset(
-        "/home/ubuntu/salt-dataset/train/images",
-        "/home/ubuntu/salt-dataset/train/masks"
+        "/Users/robertkotcher/Synthesis/unet/tgs-salt-identification-challenge/train/images",
+        "/Users/robertkotcher/Synthesis/unet/tgs-salt-identification-challenge/train/masks"
     )
 
     model.to(device)

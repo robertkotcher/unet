@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 # to convert masks to uint8
 from PIL import Image
 from torchvision import transforms
+from torchvision.utils import save_image
 convert_tensor = transforms.ToTensor()
 
 logging.basicConfig(level=logging.INFO, format='[DATASET] %(levelname)s: %(message)s')
@@ -44,8 +45,10 @@ class SaltDataset(Dataset):
             mask = mask_tensor.to(torch.uint8)   
             self.masks.append(mask)
 
-        torch.save(self.images[0], 'image0.np')
-        torch.save(self.masks[0], 'mask0.np')
+        # ---- save for viewing ----
+        #for i in range(100):
+        #    save_image(self.images[i], f"./del/{i}-i.png")
+        #    save_image(self.masks[i] / 255.0, f"./del/{i}-m.png")
 
         logging.info(f"Done loading images and masks.")
 
