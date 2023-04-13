@@ -1,4 +1,5 @@
 import logging
+import wandb
 import torch
 import torch.nn as nn
 import os
@@ -38,10 +39,10 @@ def train_model(
     model,
     dataset=None,
     device='cuda',
-    num_epochs=10,
+    num_epochs=1000,
     val_percent=0.01,
-    batch_size=1,
-    lr=1e-8,
+    batch_size=128,
+    lr=1e-6,
 
     # momentum and weight_decay are values used with RMS_prop optimizer
     momentum=0.99,
@@ -92,11 +93,6 @@ def train_model(
                 masks_pred = model(images)
                 loss = lossfn(masks_pred.squeeze(), masks.squeeze())
 
-                if _counter % 1000 == 0:
-                    print(masks)
-                    print(masks_pred)
-                    print("===")
-
                 optimizer.zero_grad(set_to_none=True)
                 grad_scaler.scale(loss).backward()
                 grad_scaler.step(optimizer)
@@ -105,6 +101,16 @@ def train_model(
                 pbar.update(images.shape[0])
                 epoch_loss += loss.item()
                 pbar.set_postfix(**{'loss': f"{loss.item():.3f}"})
+                wandb.log({"loss_train": loss})
+                if epoch % 10 == 0:
+                    wandb.watch(model)
+                    m_pred = wandb.Image(masks_pred, caption="Prediction")
+                    m = wandb.Image(masks, caption="Target")
+                    wandb.log({
+                        "masks_pred": m_pred,
+                        "masks_target": m
+                    })
+
 
                 # do validation after this....
                 # but I'll do this when I see that training on training set is working
@@ -130,6 +136,10 @@ if __name__ == "__main__":
         "/home/ubuntu/salt-dataset/train/masks",
         transform=transforms.Resize(96)
     )
+    wandb.init(project="unet-salt")
+
+    subsetids = list(range(100))
+    sds = torch.utils.data.Subset(sds, subsetids)
 
     train_model(model, sds, device)
 
